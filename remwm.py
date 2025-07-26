@@ -317,6 +317,14 @@ def apply_mosaic(image: Image.Image, mask: Image.Image, mosaic_size: int = 20):
 def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, mosaic: bool, mosaic_size: int, max_bbox_percent: float, force_format: str, detection_sensitivity: float, include_rotated: bool):
     input_path = Path(input_path)
     output_path = Path(output_path)
+    
+    # 创建cache目录
+    cache_dir = Path("C:/temp/wm_cache")
+    cache_input_dir = cache_dir / "input"
+    cache_output_dir = cache_dir / "output"
+    
+    cache_input_dir.mkdir(parents=True, exist_ok=True)
+    cache_output_dir.mkdir(parents=True, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
@@ -329,17 +337,31 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
         logger.info("LaMA model loaded")
 
     def handle_one(image_path: Path, output_path: Path):
-        if output_path.exists() and not overwrite:
-            logger.info(f"Skipping existing file: {output_path}")
+        # 确保输出目录存在
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # 生成cache中的文件名
+        cache_input_file = cache_input_dir / image_path.name
+        cache_output_file = cache_output_dir / image_path.name
+        
+        # 最终输出文件路径
+        final_output_file = output_path / image_path.name
+        
+        if final_output_file.exists() and not overwrite:
+            logger.info(f"Skipping existing file: {final_output_file}")
             return
 
         try:
+            # 复制文件到cache目录
+            import shutil
+            shutil.copy2(image_path, cache_input_file)
+            
             # 内存监控
             import psutil, gc
             process = psutil.Process()
             initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
-            image = Image.open(image_path).convert("RGB")
+            image = Image.open(cache_input_file).convert("RGB")
             original_size = image.size
 
             # 智能压缩大图像避免OOM
@@ -385,9 +407,23 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
                 logger.warning("Transparency detected, using PNG")
                 output_format = "PNG"
 
-            new_output_path = output_path.with_suffix(f".{output_format.lower()}")
-            result_image.save(new_output_path, format=output_format, optimize=True)
-            logger.info(f"Processed {image_path} -> {new_output_path}")
+            # 保存到cache输出目录
+            cache_output_file = cache_output_file.with_suffix(f".{output_format.lower()}")
+            result_image.save(cache_output_file, format=output_format, optimize=True)
+            logger.info(f"Processed {cache_input_file} -> {cache_output_file}")
+            
+            # 复制处理后的文件到最终输出目录
+            import shutil
+            final_output_file = final_output_file.with_suffix(f".{output_format.lower()}")
+            shutil.copy2(cache_output_file, final_output_file)
+            logger.info(f"Copied result from cache: {final_output_file}")
+
+            # 清理cache文件
+            try:
+                cache_input_file.unlink(missing_ok=True)
+                cache_output_file.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Failed to clean cache files: {e}")
 
             # 清理内存
             del image, mask_image, result_image
@@ -400,21 +436,21 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
             gc.collect()
 
     if input_path.is_dir():
-        if not output_path.exists():
-            output_path.mkdir(parents=True)
+        # 确保输出目录存在
+        output_path.mkdir(parents=True, exist_ok=True)
 
         images = list(input_path.glob("*.[jp][pn]g")) + list(input_path.glob("*.webp"))
         total_images = len(images)
 
         for idx, image_path in enumerate(tqdm.tqdm(images, desc="Processing images")):
-            output_file = output_path / image_path.name
-            handle_one(image_path, output_file)
+            handle_one(image_path, output_path)
             progress = int((idx + 1) / total_images * 100)
-            print(f"input_path:{image_path}, output_path:{output_file}, overall_progress:{progress}")
+            print(f"input_path:{image_path}, output_path:{output_path}, overall_progress:{progress}")
     else:
-        output_file = output_path.with_suffix(".webp" if transparent else output_path.suffix)
-        handle_one(input_path, output_file)
-        print(f"input_path:{input_path}, output_path:{output_file}, overall_progress:100")
+        # 对于单个文件，output_path作为目录
+        output_path.mkdir(parents=True, exist_ok=True)
+        handle_one(input_path, output_path)
+        print(f"input_path:{input_path}, output_path:{output_path}, overall_progress:100")
 
 if __name__ == "__main__":
     main()
