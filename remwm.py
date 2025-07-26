@@ -1,5 +1,7 @@
 import sys
 import click
+import gc
+import os
 from pathlib import Path
 import cv2
 import numpy as np
@@ -12,6 +14,7 @@ from torch.nn import Module
 import tqdm
 from loguru import logger
 from enum import Enum
+import psutil
 
 try:
     from cv2.typing import MatLike
@@ -136,35 +139,27 @@ def get_watermark_mask(image: MatLike, model: AutoModelForCausalLM, processor: A
     return mask
 
 def get_enhanced_watermark_mask(image: MatLike, model: AutoModelForCausalLM, processor: AutoProcessor, device: str, max_bbox_percent: float, sensitivity: float):
-    """增强版水印检测，支持旋转和重叠水印检测"""
+    """高性能水印检测，优化CPU/RAM使用"""
     
-    # 扩展的提示词列表，根据敏感度调整
-    base_text_inputs = [
-        "watermark",
-        "text overlay",
-        "logo",
-        "brand name",
-        "copyright text",
-        "watermark text",
-        "半透明文字",
-        "倾斜文字",
-        "重叠文字",
-        "diagonal text",
-        "rotated text",
-        "transparent overlay",
-        "subtle watermark",
-        "faint text"
-    ]
+    # 性能优化：限制图像尺寸
+    max_size = 1024
+    if max(image.width, image.height) > max_size:
+        scale = max_size / max(image.width, image.height)
+        new_width = int(image.width * scale)
+        new_height = int(image.height * scale)
+        image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
     
-    # 根据敏感度调整提示词数量
-    text_inputs = base_text_inputs[:max(3, int(len(base_text_inputs) * sensitivity))]
+    # 优化提示词列表
+    text_inputs = ["watermark", "text overlay", "rotated text"]
+    if sensitivity > 1.0:
+        text_inputs.extend(["diagonal watermark", "logo"])
     
     mask = Image.new("L", image.size, 0)
     draw = ImageDraw.Draw(mask)
     
     all_bboxes = []
     
-    # 原始图像检测
+    # 批量检测减少重复计算
     for text_input in text_inputs:
         task_prompt = TaskType.OPEN_VOCAB_DETECTION
         parsed_answer = identify(task_prompt, image, text_input, model, processor, device)
@@ -172,99 +167,75 @@ def get_enhanced_watermark_mask(image: MatLike, model: AutoModelForCausalLM, pro
         detection_key = "<OPEN_VOCABULARY_DETECTION>"
         if detection_key in parsed_answer and "bboxes" in parsed_answer[detection_key]:
             bboxes = parsed_answer[detection_key]["bboxes"]
-            # 根据敏感度调整检测阈值
+            # 快速阈值过滤
+            threshold = max(0.4, 0.6 / sensitivity)
             if "scores" in parsed_answer[detection_key]:
-                scores = parsed_answer[detection_key]["scores"]
-                threshold = max(0.3, 0.7 / sensitivity)  # 敏感度越高，阈值越低
-                bboxes = [bbox for bbox, score in zip(bboxes, scores) if score > threshold]
+                bboxes = [bbox for bbox, score in zip(bboxes, parsed_answer[detection_key]["scores"]) 
+                         if score > threshold]
             all_bboxes.extend(bboxes)
     
-    # 旋转检测（针对45度斜向水印）
-    if sensitivity >= 0.8:  # 只在敏感度较高时启用旋转检测
-        angles = [-45, -30, -15, 15, 30, 45]  # 45度旋转检测
+    # 智能旋转检测：仅对高敏感度启用，减少角度数量
+    if sensitivity >= 1.2:
+        angles = [-45, 45]  # 仅检测关键45度角
         for angle in angles:
             rotated_image = image.rotate(angle, expand=True)
-            for text_input in ["diagonal watermark", "rotated text", "angled watermark"]:
-                task_prompt = TaskType.OPEN_VOCAB_DETECTION
-                parsed_answer = identify(task_prompt, rotated_image, text_input, model, processor, device)
+            task_prompt = TaskType.OPEN_VOCAB_DETECTION
+            parsed_answer = identify(task_prompt, rotated_image, "rotated watermark", model, processor, device)
 
-                detection_key = "<OPEN_VOCABULARY_DETECTION>"
-                if detection_key in parsed_answer and "bboxes" in parsed_answer[detection_key]:
-                    # 将旋转后的坐标转换回原图像坐标
-                    for bbox in parsed_answer[detection_key]["bboxes"]:
-                        x1, y1, x2, y2 = bbox
-                        # 简化的坐标转换（近似）
-                        center_x = image.width / 2
-                        center_y = image.height / 2
-                        
-                        # 这里简化处理，实际应该使用完整的旋转矩阵变换
-                        # 但对于小角度旋转，这种近似通常足够
-                        all_bboxes.append([x1, y1, x2, y2])
+            detection_key = "<OPEN_VOCABULARY_DETECTION>"
+            if detection_key in parsed_answer and "bboxes" in parsed_answer[detection_key]:
+                all_bboxes.extend(parsed_answer[detection_key]["bboxes"])
     
-    # 去除重复和重叠框
+    # 快速去重算法
     if all_bboxes:
         import numpy as np
         bboxes = np.array(all_bboxes)
         
-        # 使用NMS合并重叠框
+        # 简化的NMS算法
         merged_bboxes = []
-        used = [False] * len(bboxes)
-        
-        for i in range(len(bboxes)):
-            if used[i]:
-                continue
-                
-            x1_i, y1_i, x2_i, y2_i = bboxes[i]
-            merged = [x1_i, y1_i, x2_i, y2_i]
+        if len(bboxes) > 0:
+            # 按面积排序，优先大框
+            areas = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
+            indices = np.argsort(areas)[::-1]
             
-            for j in range(i + 1, len(bboxes)):
-                if used[j]:
+            used = set()
+            for i in indices:
+                if i in used:
                     continue
-                    
-                x1_j, y1_j, x2_j, y2_j = bboxes[j]
                 
-                # 计算重叠度
-                overlap_x1 = max(x1_i, x1_j)
-                overlap_y1 = max(y1_i, y1_j)
-                overlap_x2 = min(x2_i, x2_j)
-                overlap_y2 = min(y2_i, y2_j)
+                x1_i, y1_i, x2_i, y2_i = bboxes[i]
+                merged_bboxes.append([x1_i, y1_i, x2_i, y2_i])
                 
-                if overlap_x2 > overlap_x1 and overlap_y2 > overlap_y1:
-                    overlap_area = (overlap_x2 - overlap_x1) * (overlap_y2 - overlap_y1)
-                    area_i = (x2_i - x1_i) * (y2_i - y1_i)
-                    area_j = (x2_j - x1_j) * (y2_j - y1_j)
+                # 快速标记重叠框
+                for j in indices:
+                    if j in used:
+                        continue
                     
-                    # 更宽松的重叠合并策略
-                    if overlap_area / max(area_i, area_j) > 0.2 * sensitivity:
-                        merged = [
-                            min(x1_i, x1_j),
-                            min(y1_i, y1_j),
-                            max(x2_i, x2_j),
-                            max(y2_i, y2_j)
-                        ]
-                        used[j] = True
-            
-            merged_bboxes.append(merged)
-            used[i] = True
+                    x1_j, y1_j, x2_j, y2_j = bboxes[j]
+                    overlap_x1 = max(x1_i, x1_j)
+                    overlap_y1 = max(y1_i, y1_j)
+                    overlap_x2 = min(x2_i, x2_j)
+                    overlap_y2 = min(y2_i, y2_j)
+                    
+                    if overlap_x2 > overlap_x1 and overlap_y2 > overlap_y1:
+                        overlap_area = (overlap_x2 - overlap_x1) * (overlap_y2 - overlap_y1)
+                        area_i = (x2_i - x1_i) * (y2_i - y1_i)
+                        if overlap_area / area_i > 0.3:
+                            used.add(j)
         
         image_area = image.width * image.height
         for bbox in merged_bboxes:
             x1, y1, x2, y2 = map(int, bbox)
             bbox_area = (x2 - x1) * (y2 - y1)
             
-            # 根据敏感度调整最大框限制
-            adjusted_max_percent = max_bbox_percent * (1.5 if sensitivity > 1.2 else 1.0)
-            
-            if (bbox_area / image_area) * 100 <= adjusted_max_percent:
-                # 扩大检测框以包含更多边缘，敏感度越高扩大越多
-                margin = max(3, int(min(x2-x1, y2-y1) * 0.15 * sensitivity))
+            if (bbox_area / image_area) * 100 <= max_bbox_percent:
+                # 适度扩大检测框
+                margin = max(2, int(min(x2-x1, y2-y1) * 0.1))
                 x1 = max(0, x1 - margin)
                 y1 = max(0, y1 - margin)
                 x2 = min(image.width, x2 + margin)
                 y2 = min(image.height, y2 + margin)
                 draw.rectangle([x1, y1, x2, y2], fill=255)
-            else:
-                logger.warning(f"Skipping large bounding box: {bbox} covering {bbox_area / image_area:.2%} of the image")
 
     return mask
 
@@ -326,41 +297,69 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
             logger.info(f"Skipping existing file: {output_path}")
             return
 
-        image = Image.open(image_path).convert("RGB")
-        
-        # 预处理：如果启用旋转检测，使用增强检测
-        if include_rotated:
+        try:
+            # 内存监控
+            import psutil, gc
+            process = psutil.Process()
+            initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+
+            image = Image.open(image_path).convert("RGB")
+            original_size = image.size
+
+            # 智能压缩大图像避免OOM
+            max_input_size = 2048
+            if max(image.width, image.height) > max_input_size:
+                scale = max_input_size / max(image.width, image.height)
+                image = image.resize((int(image.width * scale), int(image.height * scale)), Image.Resampling.LANCZOS)
+
+            # 统一使用增强检测，减少分支
             mask_image = get_enhanced_watermark_mask(image, florence_model, florence_processor, device, max_bbox_percent, detection_sensitivity)
-        else:
-            mask_image = get_watermark_mask(image, florence_model, florence_processor, device, max_bbox_percent)
 
-        if transparent:
-            result_image = make_region_transparent(image, mask_image)
-        else:
-            cv2_result = process_image_with_lama(np.array(image), np.array(mask_image), model_manager)
-            result_image = Image.fromarray(cv2.cvtColor(cv2_result, cv2.COLOR_BGR2RGB))
+            if mask_image.getbbox() is None:
+                logger.warning("No watermark detected, saving original")
+                if original_size != image.size:
+                    image = image.resize(original_size, Image.Resampling.LANCZOS)
+                image.save(output_path, quality=90)
+                return
 
-        # Determine output format
-        if force_format:
-            output_format = force_format.upper()
-        elif transparent:
-            output_format = "PNG"
-        else:
-            output_format = image_path.suffix[1:].upper()
-            if output_format not in ["PNG", "WEBP", "JPG"]:
+            if transparent:
+                result_image = make_region_transparent(image, mask_image)
+            else:
+                cv2_result = process_image_with_lama(np.array(image), np.array(mask_image), model_manager)
+                result_image = Image.fromarray(cv2.cvtColor(cv2_result, cv2.COLOR_BGR2RGB))
+
+            # 恢复原始尺寸
+            if original_size != image.size:
+                result_image = result_image.resize(original_size, Image.Resampling.LANCZOS)
+
+            # 输出格式处理
+            if force_format:
+                output_format = force_format.upper()
+            elif transparent:
                 output_format = "PNG"
-        
-        # Map JPG to JPEG for PIL compatibility
-        if output_format == "JPG":
-            output_format = "JPEG"
+            else:
+                output_format = image_path.suffix[1:].upper()
+                if output_format not in ["PNG", "WEBP", "JPG"]:
+                    output_format = "PNG"
+            if output_format == "JPG":
+                output_format = "JPEG"
+            if transparent and output_format == "JPG":
+                logger.warning("Transparency detected, using PNG")
+                output_format = "PNG"
 
-        if transparent and output_format == "JPG":
-            logger.warning("Transparency detected. Defaulting to PNG for transparency support.")
-            output_format = "PNG"
+            new_output_path = output_path.with_suffix(f".{output_format.lower()}")
+            result_image.save(new_output_path, format=output_format, optimize=True)
+            logger.info(f"Processed {image_path} -> {new_output_path}")
 
-        new_output_path = output_path.with_suffix(f".{output_format.lower()}")
-        result_image.save(new_output_path, format=output_format)
-        logger.info(f"input_path:{image_path}, output_path:{new_output_path}")
+            # 清理内存
+            del image, mask_image, result_image
+            gc.collect()
+            final_memory = process.memory_info().rss / 1024 / 1024
+            logger.debug(f"Memory: {initial_memory:.1f}MB → {final_memory:.1f}MB")
+
+        except Exception as e:
+            logger.error(f"Error processing {image_path}: {e}")
+            gc.collect()
 
     if input_path.is_dir():
         if not output_path.exists():
