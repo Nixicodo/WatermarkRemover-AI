@@ -179,9 +179,9 @@ def get_enhanced_watermark_mask(image: MatLike, model: AutoModelForCausalLM, pro
                 bboxes = [bbox for bbox, score in zip(bboxes, scores) if score > threshold]
             all_bboxes.extend(bboxes)
     
-    # 旋转检测（针对斜向水印）
+    # 旋转检测（针对45度斜向水印）
     if sensitivity >= 0.8:  # 只在敏感度较高时启用旋转检测
-        angles = [-15, -10, -5, 5, 10, 15]  # 小角度旋转
+        angles = [-45, -30, -15, 15, 30, 45]  # 45度旋转检测
         for angle in angles:
             rotated_image = image.rotate(angle, expand=True)
             for text_input in ["diagonal watermark", "rotated text", "angled watermark"]:

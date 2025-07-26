@@ -67,6 +67,7 @@ class WatermarkRemoverGUI(QMainWindow):
         self.sensitivity_slider.valueChanged.connect(lambda v: self.sensitivity_label.setText(f"Sensitivity: {v/10:.1f}"))
 
         self.rotated_checkbox = QCheckBox("Include rotated detection", self)
+        self.rotated_checkbox.setChecked(True)  # 默认勾选旋转检测
 
         self.force_format_png = QRadioButton("PNG")
         self.force_format_webp = QRadioButton("WEBP")
