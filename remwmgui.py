@@ -245,8 +245,10 @@ class WatermarkRemoverGUI(QMainWindow):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         remwm_path = os.path.join(script_dir, "remwm.py")
         
+        # Use the current Python executable (virtual environment)
+        python_executable = sys.executable
         command = [
-            "python", remwm_path,
+            python_executable, remwm_path,
             input_path, output_path,
             overwrite, transparent,
             f"--max-bbox-percent={max_bbox_percent}",
