@@ -60,6 +60,14 @@ class WatermarkRemoverGUI(QMainWindow):
         self.max_bbox_percent_label = QLabel(f"Max BBox Percent: 10%", self)
         self.max_bbox_percent_slider.valueChanged.connect(self.update_bbox_label)
 
+        self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.sensitivity_slider.setRange(5, 20)  # 0.5–2.0 step 0.1
+        self.sensitivity_slider.setValue(10)
+        self.sensitivity_label = QLabel("Sensitivity: 1.0", self)
+        self.sensitivity_slider.valueChanged.connect(lambda v: self.sensitivity_label.setText(f"Sensitivity: {v/10:.1f}"))
+
+        self.rotated_checkbox = QCheckBox("Include rotated detection", self)
+
         self.force_format_png = QRadioButton("PNG")
         self.force_format_webp = QRadioButton("WEBP")
         self.force_format_jpg = QRadioButton("JPG")
@@ -118,6 +126,13 @@ class WatermarkRemoverGUI(QMainWindow):
         bbox_layout.addWidget(self.max_bbox_percent_label)
         bbox_layout.addWidget(self.max_bbox_percent_slider)
         options_layout.addLayout(bbox_layout)
+
+        sens_layout = QVBoxLayout()
+        sens_layout.addWidget(self.sensitivity_label)
+        sens_layout.addWidget(self.sensitivity_slider)
+        options_layout.addLayout(sens_layout)
+
+        options_layout.addWidget(self.rotated_checkbox)
 
         force_format_layout = QHBoxLayout()
         force_format_layout.addWidget(QLabel("Force Format:"))
@@ -252,8 +267,11 @@ class WatermarkRemoverGUI(QMainWindow):
             input_path, output_path,
             overwrite, transparent,
             f"--max-bbox-percent={max_bbox_percent}",
+            f"--detection-sensitivity={self.sensitivity_slider.value()/10:.1f}",
             force_format_option
         ]
+        if self.rotated_checkbox.isChecked():
+            command.append("--include-rotated")
         command = [arg for arg in command if arg]  # Remove empty strings
 
         self.process = subprocess.Popen(
