@@ -239,9 +239,7 @@ def get_enhanced_watermark_mask(image: MatLike, model: AutoModelForCausalLM, pro
 
     return mask
 
-def get_watermark_mask(image: MatLike, model: AutoModelForCausalLM, processor: AutoProcessor, device: str, max_bbox_percent: float, sensitivity: float = 1.0):
-    """基础水印检测函数，支持敏感度调整"""
-    return get_enhanced_watermark_mask(image, model, processor, device, max_bbox_percent, sensitivity)
+
 
 def process_image_with_lama(image: MatLike, mask: MatLike, model_manager: ModelManager):
     config = Config(
@@ -269,16 +267,54 @@ def make_region_transparent(image: Image.Image, mask: Image.Image):
                 transparent_image.putpixel((x, y), image.getpixel((x, y)))
     return transparent_image
 
+def apply_mosaic(image: Image.Image, mask: Image.Image, mosaic_size: int = 20):
+    """
+    对指定区域应用像素化马赛克效果
+    
+    Args:
+        image: PIL Image对象
+        mask: 需要像素化的区域掩码
+        mosaic_size: 像素化块大小
+    
+    Returns:
+        PIL Image: 处理后的图片
+    """
+    img_array = np.array(image)
+    mask_array = np.array(mask.convert("L"))
+    
+    # 找到掩码中的非零区域
+    contours, _ = cv2.findContours(mask_array, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    for contour in contours:
+        # 获取边界框
+        x, y, w, h = cv2.boundingRect(contour)
+        
+        if w > 0 and h > 0:
+            # 提取需要处理的区域
+            roi = img_array[y:y+h, x:x+w]
+            
+            # 应用像素化：缩小再放大
+            small = cv2.resize(roi, (max(1, w//mosaic_size), max(1, h//mosaic_size)), 
+                              interpolation=cv2.INTER_LINEAR)
+            mosaic = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+            
+            # 将马赛克效果应用到原图
+            img_array[y:y+h, x:x+w] = mosaic
+    
+    return Image.fromarray(img_array)
+
 @click.command()
 @click.argument("input_path", type=click.Path(exists=True))
 @click.argument("output_path", type=click.Path())
 @click.option("--overwrite", is_flag=True, help="Overwrite existing files in bulk mode.")
 @click.option("--transparent", is_flag=True, help="Make watermark regions transparent instead of removing.")
+@click.option("--mosaic", is_flag=True, help="Apply mosaic effect to watermark regions instead of removing.")
+@click.option("--mosaic-size", default=20, help="Mosaic pixel size (default: 20)")
 @click.option("--max-bbox-percent", default=10.0, help="Maximum percentage of the image that a bounding box can cover.")
 @click.option("--force-format", type=click.Choice(["PNG", "WEBP", "JPG"], case_sensitive=False), default=None, help="Force output format. Defaults to input format.")
 @click.option("--detection-sensitivity", default=1.0, help="Watermark detection sensitivity (0.5-2.0). Higher values detect more potential watermarks.")
 @click.option("--include-rotated", is_flag=True, help="Include rotated text detection for better斜向水印检测.")
-def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, max_bbox_percent: float, force_format: str, detection_sensitivity: float, include_rotated: bool):
+def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, mosaic: bool, mosaic_size: int, max_bbox_percent: float, force_format: str, detection_sensitivity: float, include_rotated: bool):
     input_path = Path(input_path)
     output_path = Path(output_path)
 
@@ -288,7 +324,7 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
     florence_processor = AutoProcessor.from_pretrained("microsoft/Florence-2-large", trust_remote_code=True)
     logger.info("Florence-2 Model loaded")
 
-    if not transparent:
+    if not transparent and not mosaic:
         model_manager = ModelManager(name="lama", device=device)
         logger.info("LaMA model loaded")
 
@@ -324,6 +360,8 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
 
             if transparent:
                 result_image = make_region_transparent(image, mask_image)
+            elif mosaic:
+                result_image = apply_mosaic(image, mask_image, mosaic_size)
             else:
                 cv2_result = process_image_with_lama(np.array(image), np.array(mask_image), model_manager)
                 result_image = Image.fromarray(cv2.cvtColor(cv2_result, cv2.COLOR_BGR2RGB))

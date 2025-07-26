@@ -39,10 +39,14 @@ Example of watermark removal with LaMa inpainting
 
 - **Dual Modes**: Process individual images or entire directories of images.
 - **Advanced Watermark Detection**: Utilizes Florence-2's open-vocabulary detection for accurate watermark identification.
-- **Seamless Inpainting**: Employs LaMA for high-quality, context-aware inpainting.
+- **Multiple Processing Options**:
+  - **Seamless Inpainting**: Employs LaMA for high-quality, context-aware inpainting.
+  - **Mosaic Effect**: Apply pixelated mosaic to watermark regions for privacy protection.
+  - **Transparency**: Make watermark regions transparent instead of removing them.
 - **Customizable Output**:
   - Configure maximum bounding box size for watermark detection.
   - Set transparency for watermark regions.
+  - Adjust mosaic pixel size for privacy effects.
   - Force specific output formats (PNG, WEBP, JPG).
 - **Progress Tracking**: Real-time progress updates in both GUI and CLI modes.
 - **Dark Mode Support**: GUI automatically adapts to system dark mode settings.
@@ -177,13 +181,28 @@ Example of watermark removal with LaMa inpainting
 2. **Options**:
    - `--overwrite`: Overwrite existing files.
    - `--transparent`: Make watermark regions transparent instead of removing them.
+   - `--mosaic`: Apply mosaic effect to watermark regions instead of removing them.
+   - `--mosaic-size`: Set mosaic pixel size (default: 20).
    - `--max-bbox-percent`: Set the maximum bounding box size for watermark detection (default: 10%).
    - `--force-format`: Force output format (PNG, WEBP, or JPG).
 
-3. **Example**:
-   ```bash
-   python remwm.py ./input_images ./output_images --overwrite --max-bbox-percent=15 --force-format=PNG
-   ```
+3. **Examples**:
+   - **Basic inpainting** (default):
+     ```bash
+     python remwm.py ./input_images ./output_images --overwrite
+     ```
+   - **Apply mosaic effect**:
+     ```bash
+     python remwm.py ./input_images ./output_images --mosaic --mosaic-size=15
+     ```
+   - **Make transparent**:
+     ```bash
+     python remwm.py ./input_images ./output_images --transparent
+     ```
+   - **Advanced settings**:
+     ```bash
+     python remwm.py ./input_images ./output_images --mosaic --mosaic-size=25 --max-bbox-percent=15 --force-format=PNG
+     ```
 ---
 
 ### Upgrade Notes

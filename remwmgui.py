@@ -53,7 +53,13 @@ class WatermarkRemoverGUI(QMainWindow):
         self.input_path = QLineEdit(self)
         self.output_path = QLineEdit(self)
         self.overwrite_checkbox = QCheckBox("Overwrite Existing Files", self)
-        self.transparent_checkbox = QCheckBox("Make Watermark Transparent", self)
+        self.mosaic_checkbox = QCheckBox("Apply Mosaic Effect", self)
+        self.mosaic_size_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.mosaic_size_slider.setRange(5, 50)
+        self.mosaic_size_slider.setValue(20)
+        self.mosaic_size_label = QLabel("Mosaic Size: 20px", self)
+        self.mosaic_size_slider.valueChanged.connect(lambda v: self.mosaic_size_label.setText(f"Mosaic Size: {v}px"))
+        
         self.max_bbox_percent_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.max_bbox_percent_slider.setRange(1, 100)
         self.max_bbox_percent_slider.setValue(10)
@@ -121,7 +127,12 @@ class WatermarkRemoverGUI(QMainWindow):
         # Options
         options_layout = QVBoxLayout()
         options_layout.addWidget(self.overwrite_checkbox)
-        options_layout.addWidget(self.transparent_checkbox)
+        options_layout.addWidget(self.mosaic_checkbox)
+
+        mosaic_layout = QVBoxLayout()
+        mosaic_layout.addWidget(self.mosaic_size_label)
+        mosaic_layout.addWidget(self.mosaic_size_slider)
+        options_layout.addLayout(mosaic_layout)
 
         bbox_layout = QVBoxLayout()
         bbox_layout.addWidget(self.max_bbox_percent_label)
@@ -245,7 +256,8 @@ class WatermarkRemoverGUI(QMainWindow):
             return
 
         overwrite = "--overwrite" if self.overwrite_checkbox.isChecked() else ""
-        transparent = "--transparent" if self.transparent_checkbox.isChecked() else ""
+        mosaic = "--mosaic" if self.mosaic_checkbox.isChecked() else ""
+        mosaic_size = f"--mosaic-size={self.mosaic_size_slider.value()}" if self.mosaic_checkbox.isChecked() else ""
         max_bbox_percent = self.max_bbox_percent_slider.value()
         force_format = "None"
         if self.force_format_png.isChecked():
@@ -266,7 +278,7 @@ class WatermarkRemoverGUI(QMainWindow):
         command = [
             python_executable, remwm_path,
             input_path, output_path,
-            overwrite, transparent,
+            overwrite, mosaic, mosaic_size,
             f"--max-bbox-percent={max_bbox_percent}",
             f"--detection-sensitivity={self.sensitivity_slider.value()/10:.1f}",
             force_format_option
@@ -327,7 +339,8 @@ class WatermarkRemoverGUI(QMainWindow):
             "input_path": self.input_path.text(),
             "output_path": self.output_path.text(),
             "overwrite": self.overwrite_checkbox.isChecked(),
-            "transparent": self.transparent_checkbox.isChecked(),
+            "mosaic": self.mosaic_checkbox.isChecked(),
+            "mosaic_size": self.mosaic_size_slider.value(),
             "max_bbox_percent": self.max_bbox_percent_slider.value(),
             "force_format": "PNG" if self.force_format_png.isChecked() else "WEBP" if self.force_format_webp.isChecked() else "JPG" if self.force_format_jpg.isChecked() else "None",
             "mode": "single" if self.radio_single.isChecked() else "batch"
@@ -342,7 +355,8 @@ class WatermarkRemoverGUI(QMainWindow):
                 self.input_path.setText(config.get("input_path", ""))
                 self.output_path.setText(config.get("output_path", ""))
                 self.overwrite_checkbox.setChecked(config.get("overwrite", False))
-                self.transparent_checkbox.setChecked(config.get("transparent", False))
+                self.mosaic_checkbox.setChecked(config.get("mosaic", False))
+                self.mosaic_size_slider.setValue(config.get("mosaic_size", 20))
                 self.max_bbox_percent_slider.setValue(config.get("max_bbox_percent", 10))
                 force_format = config.get("force_format", "None")
                 if force_format == "PNG":
