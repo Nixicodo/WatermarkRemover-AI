@@ -53,11 +53,13 @@ class WatermarkRemoverGUI(QMainWindow):
         self.input_path = QLineEdit(self)
         self.output_path = QLineEdit(self)
         self.overwrite_checkbox = QCheckBox("Overwrite Existing Files", self)
+        self.overwrite_checkbox.setChecked(True)
         self.mosaic_checkbox = QCheckBox("Apply Mosaic Effect", self)
+        self.mosaic_checkbox.setChecked(True)
         self.mosaic_size_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.mosaic_size_slider.setRange(5, 50)
-        self.mosaic_size_slider.setValue(20)
-        self.mosaic_size_label = QLabel("Mosaic Size: 20px", self)
+        self.mosaic_size_slider.setValue(15)
+        self.mosaic_size_label = QLabel("Mosaic Size: 15px", self)
         self.mosaic_size_slider.valueChanged.connect(lambda v: self.mosaic_size_label.setText(f"Mosaic Size: {v}px"))
         
         self.max_bbox_percent_slider = QSlider(Qt.Orientation.Horizontal, self)
@@ -68,8 +70,8 @@ class WatermarkRemoverGUI(QMainWindow):
 
         self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.sensitivity_slider.setRange(5, 20)  # 0.5–2.0 step 0.1
-        self.sensitivity_slider.setValue(10)
-        self.sensitivity_label = QLabel("Sensitivity: 1.0", self)
+        self.sensitivity_slider.setValue(17)
+        self.sensitivity_label = QLabel("Sensitivity: 1.7", self)
         self.sensitivity_slider.valueChanged.connect(lambda v: self.sensitivity_label.setText(f"Sensitivity: {v/10:.1f}"))
 
         self.rotated_checkbox = QCheckBox("Include rotated detection", self)
