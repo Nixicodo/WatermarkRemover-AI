@@ -241,8 +241,12 @@ class WatermarkRemoverGUI(QMainWindow):
 
         force_format_option = f"--force-format={force_format}" if force_format != "None" else ""
 
+        # Get the absolute path to remwm.py
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        remwm_path = os.path.join(script_dir, "remwm.py")
+        
         command = [
-            "python", "remwm.py",
+            "python", remwm_path,
             input_path, output_path,
             overwrite, transparent,
             f"--max-bbox-percent={max_bbox_percent}",
