@@ -64,10 +64,8 @@ def get_watermark_mask(image: MatLike, model: AutoModelForCausalLM, processor: A
 
     return mask
 
-def process_image_with_lama(image: MatLike, mask: MatLike, model_manager: ModelManager):
+def process_image_with_cv2(image: MatLike, mask: MatLike, model_manager: ModelManager):
     config = Config(
-        ldm_steps=50,
-        ldm_sampler=LDMSampler.ddim,
         hd_strategy=HDStrategy.CROP,
         hd_strategy_crop_margin=64,
         hd_strategy_crop_trigger_size=800,
@@ -110,8 +108,8 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
     logger.info("Florence-2 Model loaded")
 
     if not transparent:
-        model_manager = ModelManager(name="lama", device=device)
-        logger.info("LaMa model loaded")
+        model_manager = ModelManager(name="cv2", device=device)
+        logger.info("CV2 model loaded")
 
     def handle_one(image_path: Path, output_path: Path):
         if output_path.exists() and not overwrite:
@@ -124,8 +122,8 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
         if transparent:
             result_image = make_region_transparent(image, mask_image)
         else:
-            lama_result = process_image_with_lama(np.array(image), np.array(mask_image), model_manager)
-            result_image = Image.fromarray(cv2.cvtColor(lama_result, cv2.COLOR_BGR2RGB))
+            cv2_result = process_image_with_cv2(np.array(image), np.array(mask_image), model_manager)
+            result_image = Image.fromarray(cv2.cvtColor(cv2_result, cv2.COLOR_BGR2RGB))
 
         # Determine output format
         if force_format:
