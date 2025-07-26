@@ -1,0 +1,7 @@
+force_format: PNG
+input_path: D:/_projects/TaoBaoQuShuiYin/testExamples/normal shuiyin.png
+max_bbox_percent: 10
+mode: single
+output_path: D:/_projects/TaoBaoQuShuiYin/testExamples/output
+overwrite: true
+transparent: false

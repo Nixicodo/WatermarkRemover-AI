@@ -253,8 +253,10 @@ class WatermarkRemoverGUI(QMainWindow):
         self.process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
+            universal_newlines=True,
             env={**os.environ, "PYTHONUNBUFFERED": "1"}
         )
 
@@ -273,7 +275,9 @@ class WatermarkRemoverGUI(QMainWindow):
         self.start_button.setDisabled(True)
 
     def update_logs(self, line):
-        self.logs.append(line)
+        self.logs.append(line.strip())
+        self.logs.repaint()
+        QApplication.processEvents()
 
     def update_progress_bar(self, progress):
         self.progress_bar.setValue(progress)
