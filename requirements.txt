@@ -1,0 +1,15 @@
+click
+loguru
+tqdm
+pillow
+opencv-python
+numpy
+psutil
+PyQt6
+transformers
+iopaint
+torch
+torchvision
+torchaudio
+accelerate
+safetensors
