@@ -271,8 +271,13 @@ class WatermarkRemoverGUI(QMainWindow):
 
         force_format_option = f"--force-format={force_format}" if force_format != "None" else ""
 
-        # Get the absolute path to remwm.py
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Get the absolute path to remwm.py, handling PyInstaller bundling
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            script_dir = sys._MEIPASS
+        else:
+            # Running as script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
         remwm_path = os.path.join(script_dir, "remwm.py")
         
         # Use the current Python executable (virtual environment)
