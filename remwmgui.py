@@ -36,6 +36,47 @@ class Worker(QObject):
         finally:
             self.finished_signal.emit()
 
+
+class RemwmWorker(QObject):
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal()
+    
+    def __init__(self, remwm_main_func, args):
+        super().__init__()
+        self.remwm_main_func = remwm_main_func
+        self.args = args
+    
+    def run(self):
+        try:
+            # Create a mock context object to capture print statements
+            class MockContext:
+                def __init__(self, log_signal):
+                    self.log_signal = log_signal
+                    
+                def __enter__(self):
+                    import sys
+                    import io
+                    self.old_stdout = sys.stdout
+                    self.output_buffer = io.StringIO()
+                    sys.stdout = self.output_buffer
+                    return self
+                    
+                def __exit__(self, exc_type, exc_val, exc_tb):
+                    import sys
+                    sys.stdout = self.old_stdout
+                    output = self.output_buffer.getvalue()
+                    for line in output.split('\n'):
+                        if line.strip():
+                            self.log_signal.emit(line)
+                    
+            # Run remwm.main with captured output
+            with MockContext(self.log_signal):
+                self.remwm_main_func(self.args)
+        except Exception as e:
+            self.log_signal.emit(f"Error running remwm: {str(e)}")
+        finally:
+            self.finished_signal.emit()
+
 class WatermarkRemoverGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -257,23 +298,8 @@ class WatermarkRemoverGUI(QMainWindow):
             QMessageBox.critical(self, "Error", "Input and Output paths are required.")
             return
 
-        overwrite = "--overwrite" if self.overwrite_checkbox.isChecked() else ""
-        mosaic = "--mosaic" if self.mosaic_checkbox.isChecked() else ""
-        mosaic_size = f"--mosaic-size={self.mosaic_size_slider.value()}" if self.mosaic_checkbox.isChecked() else ""
-        max_bbox_percent = self.max_bbox_percent_slider.value()
-        force_format = "None"
-        if self.force_format_png.isChecked():
-            force_format = "PNG"
-        elif self.force_format_webp.isChecked():
-            force_format = "WEBP"
-        elif self.force_format_jpg.isChecked():
-            force_format = "JPG"
-
-        force_format_option = f"--force-format={force_format}" if force_format != "None" else ""
-
+        # Instead of running subprocess, we'll import and run remwm.py directly
         # Get the absolute path to remwm.py, handling PyInstaller bundling
-        logger.info(f"Python executable: {sys.executable}")
-        self.update_logs(f"Python executable: {sys.executable}")
         logger.info(f"Current working directory: {os.getcwd()}")
         self.update_logs(f"Current working directory: {os.getcwd()}")
         
@@ -299,66 +325,61 @@ class WatermarkRemoverGUI(QMainWindow):
             QMessageBox.critical(self, "Error", f"remwm.py not found at: {remwm_path}")
             return
         
-        # Use the current Python executable (virtual environment)
-        # For PyInstaller bundled app, we need to use python executable, not the bundled exe itself
-        if getattr(sys, 'frozen', False):
-            # When running as compiled executable, find the python executable in the _MEIPASS directory
-            python_executable = os.path.join(sys._MEIPASS, "python.exe")
-            logger.info(f"Initial python executable path: {python_executable}")
-            self.update_logs(f"Initial python executable path: {python_executable}")
-            # Fallback to sys.executable if python.exe is not found
-            if not os.path.exists(python_executable):
-                logger.info(f"python.exe not found in _MEIPASS, falling back to sys.executable")
-                self.update_logs(f"python.exe not found in _MEIPASS, falling back to sys.executable")
-                python_executable = sys.executable
-            else:
-                logger.info(f"python.exe found in _MEIPASS")
-                self.update_logs(f"python.exe found in _MEIPASS")
-        else:
-            python_executable = sys.executable
+        # Add the script directory to sys.path to allow importing remwm
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
         
-        logger.info(f"Final python executable path: {python_executable}")
-        self.update_logs(f"Final python executable path: {python_executable}")
+        # Import remwm and run it in a separate thread
+        try:
+            import remwm
             
-        command = [
-            python_executable, remwm_path,
-            input_path, output_path,
-            overwrite, mosaic, mosaic_size,
-            f"--max-bbox-percent={max_bbox_percent}",
-            f"--detection-sensitivity={self.sensitivity_slider.value()/10:.1f}",
-            force_format_option
-        ]
-        if self.rotated_checkbox.isChecked():
-            command.append("--include-rotated")
-        command = [arg for arg in command if arg]  # Remove empty strings
-        
-        # Log the final command for debugging
-        logger.info(f"Final command: {' '.join(command)}")
-        self.update_logs(f"Final command: {' '.join(command)}")
-
-        self.process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"}
-        )
-
-
-        self.worker = Worker(self.process)
-        self.worker.log_signal.connect(self.update_logs)
-        self.worker.progress_signal.connect(self.update_progress_bar)
-        self.worker.finished_signal.connect(self.reset_ui)
-
-        self.thread = QThread()
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.thread.start()
-
-        self.stop_button.setDisabled(False)
-        self.start_button.setDisabled(True)
+            # Prepare arguments for remwm.main
+            args = [input_path, output_path]
+            if self.overwrite_checkbox.isChecked():
+                args.append("--overwrite")
+            if self.mosaic_checkbox.isChecked():
+                args.append("--mosaic")
+                args.append(f"--mosaic-size={self.mosaic_size_slider.value()}")
+            args.append(f"--max-bbox-percent={self.max_bbox_percent_slider.value()}")
+            args.append(f"--detection-sensitivity={self.sensitivity_slider.value()/10:.1f}")
+            
+            # Handle force format option
+            force_format = "None"
+            if self.force_format_png.isChecked():
+                force_format = "PNG"
+            elif self.force_format_webp.isChecked():
+                force_format = "WEBP"
+            elif self.force_format_jpg.isChecked():
+                force_format = "JPG"
+            
+            if force_format != "None":
+                args.append(f"--force-format={force_format}")
+            
+            if self.rotated_checkbox.isChecked():
+                args.append("--include-rotated")
+            
+            # Log the arguments for debugging
+            logger.info(f"Running remwm.main with args: {args}")
+            self.update_logs(f"Running remwm.main with args: {args}")
+            
+            # Run remwm.main in a separate thread to avoid blocking the GUI
+            self.worker_thread = QThread()
+            self.worker = RemwmWorker(remwm.main, args)
+            self.worker.moveToThread(self.worker_thread)
+            self.worker_thread.started.connect(lambda: self.worker.run())
+            self.worker.log_signal.connect(self.update_logs)
+            self.worker.finished_signal.connect(self.reset_ui)
+            self.worker.finished_signal.connect(self.worker_thread.quit)
+            self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+            
+            self.worker_thread.start()
+            
+            self.stop_button.setDisabled(False)
+            self.start_button.setDisabled(True)
+        except Exception as e:
+            logger.error(f"Error importing or running remwm: {e}")
+            self.update_logs(f"Error importing or running remwm: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to run remwm: {e}")
 
     def update_logs(self, line):
         self.logs.append(line.strip())
