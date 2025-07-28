@@ -4,6 +4,7 @@ import subprocess
 import psutil
 import yaml
 import torch
+import threading
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit,
@@ -45,8 +46,14 @@ class RemwmWorker(QObject):
         super().__init__()
         self.remwm_main_func = remwm_main_func
         self.args = args
+        self.thread = None
     
     def run(self):
+        # Run remwm.main in a separate thread to avoid blocking the GUI
+        self.thread = threading.Thread(target=self._run_remwm)
+        self.thread.start()
+    
+    def _run_remwm(self):
         try:
             # Create a mock context object to capture print statements
             class MockContext:
