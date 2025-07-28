@@ -16,6 +16,21 @@ def set_model_info(model_, processor_):
     global model, processor
     model = model_
     processor = processor_
+    
+    # 添加调试信息
+    import sys
+    import os
+    from loguru import logger
+    
+    logger.info("Model and processor set successfully")
+    logger.info(f"Model type: {type(model)}")
+    logger.info(f"Processor type: {type(processor)}")
+    
+    # 检查是否在PyInstaller环境中运行
+    if getattr(sys, 'frozen', False):
+        logger.info("Running as compiled executable in set_model_info")
+    else:
+        logger.info("Running as script in set_model_info")
 
 class TaskType(str, Enum):
     """The types of tasks supported"""

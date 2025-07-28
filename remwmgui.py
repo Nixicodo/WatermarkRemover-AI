@@ -272,16 +272,54 @@ class WatermarkRemoverGUI(QMainWindow):
         force_format_option = f"--force-format={force_format}" if force_format != "None" else ""
 
         # Get the absolute path to remwm.py, handling PyInstaller bundling
+        logger.info(f"Python executable: {sys.executable}")
+        self.update_logs(f"Python executable: {sys.executable}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        self.update_logs(f"Current working directory: {os.getcwd()}")
+        
         if getattr(sys, 'frozen', False):
             # Running as compiled executable
             script_dir = sys._MEIPASS
+            logger.info(f"Running as compiled executable, _MEIPASS: {script_dir}")
+            self.update_logs(f"Running as compiled executable, _MEIPASS: {script_dir}")
         else:
             # Running as script
             script_dir = os.path.dirname(os.path.abspath(__file__))
+            logger.info(f"Running as script, script_dir: {script_dir}")
+            self.update_logs(f"Running as script, script_dir: {script_dir}")
+        
         remwm_path = os.path.join(script_dir, "remwm.py")
+        logger.info(f"remwm.py path: {remwm_path}")
+        self.update_logs(f"remwm.py path: {remwm_path}")
+        
+        # 检查remwm.py文件是否存在
+        if not os.path.exists(remwm_path):
+            logger.error(f"remwm.py not found at: {remwm_path}")
+            self.update_logs(f"remwm.py not found at: {remwm_path}")
+            QMessageBox.critical(self, "Error", f"remwm.py not found at: {remwm_path}")
+            return
         
         # Use the current Python executable (virtual environment)
-        python_executable = sys.executable
+        # For PyInstaller bundled app, we need to use python executable, not the bundled exe itself
+        if getattr(sys, 'frozen', False):
+            # When running as compiled executable, find the python executable in the _MEIPASS directory
+            python_executable = os.path.join(sys._MEIPASS, "python.exe")
+            logger.info(f"Initial python executable path: {python_executable}")
+            self.update_logs(f"Initial python executable path: {python_executable}")
+            # Fallback to sys.executable if python.exe is not found
+            if not os.path.exists(python_executable):
+                logger.info(f"python.exe not found in _MEIPASS, falling back to sys.executable")
+                self.update_logs(f"python.exe not found in _MEIPASS, falling back to sys.executable")
+                python_executable = sys.executable
+            else:
+                logger.info(f"python.exe found in _MEIPASS")
+                self.update_logs(f"python.exe found in _MEIPASS")
+        else:
+            python_executable = sys.executable
+        
+        logger.info(f"Final python executable path: {python_executable}")
+        self.update_logs(f"Final python executable path: {python_executable}")
+            
         command = [
             python_executable, remwm_path,
             input_path, output_path,
@@ -293,6 +331,10 @@ class WatermarkRemoverGUI(QMainWindow):
         if self.rotated_checkbox.isChecked():
             command.append("--include-rotated")
         command = [arg for arg in command if arg]  # Remove empty strings
+        
+        # Log the final command for debugging
+        logger.info(f"Final command: {' '.join(command)}")
+        self.update_logs(f"Final command: {' '.join(command)}")
 
         self.process = subprocess.Popen(
             command,

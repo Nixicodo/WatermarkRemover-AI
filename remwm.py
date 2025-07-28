@@ -328,9 +328,23 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
-    florence_model = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-large", trust_remote_code=True).to(device).eval()
-    florence_processor = AutoProcessor.from_pretrained("microsoft/Florence-2-large", trust_remote_code=True)
-    logger.info("Florence-2 Model loaded")
+    logger.info(f"Current working directory: {os.getcwd()}")
+    logger.info(f"Python executable: {sys.executable}")
+    logger.info(f"Script path: {os.path.abspath(__file__)}")
+    
+    # 检查是否在PyInstaller环境中运行
+    if getattr(sys, 'frozen', False):
+        logger.info("Running as compiled executable")
+    else:
+        logger.info("Running as script")
+    
+    # 检查模型文件是否存在
+    model_name = "microsoft/Florence-2-large"
+    logger.info(f"Loading model: {model_name}")
+    
+    florence_model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True).to(device).eval()
+    florence_processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+    logger.info("Florence-2 Model loaded successfully")
 
     if not transparent and not mosaic:
         model_manager = ModelManager(name="lama", device=device)
