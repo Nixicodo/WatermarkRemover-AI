@@ -1,3 +1,4 @@
 *.toc
 *.pyc
 *.pkg
+dist/watermark_remover.exe
