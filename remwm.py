@@ -351,6 +351,7 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
         logger.info("LaMA model loaded")
 
     def handle_one(image_path: Path, output_path: Path):
+        logger.info(f"Processing image: {image_path}")
         # 确保输出目录存在
         output_path.mkdir(parents=True, exist_ok=True)
         
@@ -369,6 +370,7 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
             # 复制文件到cache目录
             import shutil
             shutil.copy2(image_path, cache_input_file)
+            logger.info(f"Copied {image_path} to cache: {cache_input_file}")
             
             # 内存监控
             import psutil, gc
@@ -377,15 +379,19 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
 
             image = Image.open(cache_input_file).convert("RGB")
             original_size = image.size
+            logger.info(f"Opened image: {image_path.name}, size: {image.size}")
 
             # 智能压缩大图像避免OOM
             max_input_size = 2048
             if max(image.width, image.height) > max_input_size:
                 scale = max_input_size / max(image.width, image.height)
                 image = image.resize((int(image.width * scale), int(image.height * scale)), Image.Resampling.LANCZOS)
+                logger.info(f"Resized image for processing: {image.size}")
 
             # 统一使用增强检测，减少分支
+            logger.info("Starting watermark detection...")
             mask_image = get_enhanced_watermark_mask(image, florence_model, florence_processor, device, max_bbox_percent, detection_sensitivity)
+            logger.info("Watermark detection completed")
 
             if mask_image.getbbox() is None:
                 logger.warning("No watermark detected, saving original")
@@ -394,17 +400,22 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
                 image.save(output_path, quality=90)
                 return
 
+            logger.info("Applying watermark removal...")
             if transparent:
                 result_image = make_region_transparent(image, mask_image)
+                logger.info("Applied transparency effect")
             elif mosaic:
                 result_image = apply_mosaic(image, mask_image, mosaic_size)
+                logger.info(f"Applied mosaic effect with size {mosaic_size}")
             else:
                 cv2_result = process_image_with_lama(np.array(image), np.array(mask_image), model_manager)
                 result_image = Image.fromarray(cv2.cvtColor(cv2_result, cv2.COLOR_BGR2RGB))
+                logger.info("Applied LaMA inpainting")
 
             # 恢复原始尺寸
             if original_size != image.size:
                 result_image = result_image.resize(original_size, Image.Resampling.LANCZOS)
+                logger.info("Resized result image to original size")
 
             # 输出格式处理
             if force_format:
@@ -420,6 +431,7 @@ def main(input_path: str, output_path: str, overwrite: bool, transparent: bool, 
             if transparent and output_format == "JPG":
                 logger.warning("Transparency detected, using PNG")
                 output_format = "PNG"
+            logger.info(f"Output format determined: {output_format}")
 
             # 保存到cache输出目录
             cache_output_file = cache_output_file.with_suffix(f".{output_format.lower()}")

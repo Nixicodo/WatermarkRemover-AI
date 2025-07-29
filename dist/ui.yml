@@ -1,0 +1,8 @@
+force_format: None
+input_path: D:/_projects/TaoBaoQuShuiYin/testExamples/jiaoyu.png
+max_bbox_percent: 10
+mode: single
+mosaic: true
+mosaic_size: 15
+output_path: D:/_projects/TaoBaoQuShuiYin/testExamples/output
+overwrite: true

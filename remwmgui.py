@@ -64,17 +64,29 @@ class RemwmWorker(QObject):
                     import sys
                     import io
                     self.old_stdout = sys.stdout
+                    self.old_stderr = sys.stderr
                     self.output_buffer = io.StringIO()
+                    self.error_buffer = io.StringIO()
                     sys.stdout = self.output_buffer
+                    sys.stderr = self.error_buffer
                     return self
                     
                 def __exit__(self, exc_type, exc_val, exc_tb):
                     import sys
                     sys.stdout = self.old_stdout
+                    sys.stderr = self.old_stderr
                     output = self.output_buffer.getvalue()
+                    error_output = self.error_buffer.getvalue()
+                    
+                    # Emit stdout lines
                     for line in output.split('\n'):
                         if line.strip():
-                            self.log_signal.emit(line)
+                            self.log_signal.emit(f"[STDOUT] {line}")
+                    
+                    # Emit stderr lines
+                    for line in error_output.split('\n'):
+                        if line.strip():
+                            self.log_signal.emit(f"[STDERR] {line}")
                     
             # Run remwm.main with captured output
             with MockContext(self.log_signal):
@@ -87,12 +99,12 @@ class RemwmWorker(QObject):
 class WatermarkRemoverGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Watermark Remover GUI")
+        self.setWindowTitle("水印去除工具")
         self.setGeometry(100, 100, 800, 600)
 
         # Initialize UI elements
-        self.radio_single = QRadioButton("Process Single Image")
-        self.radio_batch = QRadioButton("Process Directory")
+        self.radio_single = QRadioButton("处理单张图片")
+        self.radio_batch = QRadioButton("处理目录")
         self.radio_single.setChecked(True)
         self.mode_group = QButtonGroup()
         self.mode_group.addButton(self.radio_single)
@@ -100,35 +112,35 @@ class WatermarkRemoverGUI(QMainWindow):
 
         self.input_path = QLineEdit(self)
         self.output_path = QLineEdit(self)
-        self.overwrite_checkbox = QCheckBox("Overwrite Existing Files", self)
+        self.overwrite_checkbox = QCheckBox("覆盖已存在的文件", self)
         self.overwrite_checkbox.setChecked(True)
-        self.mosaic_checkbox = QCheckBox("Apply Mosaic Effect", self)
+        self.mosaic_checkbox = QCheckBox("应用马赛克效果", self)
         self.mosaic_checkbox.setChecked(True)
         self.mosaic_size_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.mosaic_size_slider.setRange(5, 50)
         self.mosaic_size_slider.setValue(15)
-        self.mosaic_size_label = QLabel("Mosaic Size: 15px", self)
-        self.mosaic_size_slider.valueChanged.connect(lambda v: self.mosaic_size_label.setText(f"Mosaic Size: {v}px"))
+        self.mosaic_size_label = QLabel("马赛克大小: 15px", self)
+        self.mosaic_size_slider.valueChanged.connect(lambda v: self.mosaic_size_label.setText(f"马赛克大小: {v}px"))
         
         self.max_bbox_percent_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.max_bbox_percent_slider.setRange(1, 100)
         self.max_bbox_percent_slider.setValue(10)
-        self.max_bbox_percent_label = QLabel(f"Max BBox Percent: 10%", self)
+        self.max_bbox_percent_label = QLabel(f"最大边界框百分比: 10%", self)
         self.max_bbox_percent_slider.valueChanged.connect(self.update_bbox_label)
 
         self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.sensitivity_slider.setRange(5, 20)  # 0.5–2.0 step 0.1
         self.sensitivity_slider.setValue(17)
-        self.sensitivity_label = QLabel("Sensitivity: 1.7", self)
-        self.sensitivity_slider.valueChanged.connect(lambda v: self.sensitivity_label.setText(f"Sensitivity: {v/10:.1f}"))
+        self.sensitivity_label = QLabel("敏感度: 1.7", self)
+        self.sensitivity_slider.valueChanged.connect(lambda v: self.sensitivity_label.setText(f"敏感度: {v/10:.1f}"))
 
-        self.rotated_checkbox = QCheckBox("Include rotated detection", self)
+        self.rotated_checkbox = QCheckBox("包含旋转检测", self)
         self.rotated_checkbox.setChecked(True)  # 默认勾选旋转检测
 
         self.force_format_png = QRadioButton("PNG")
         self.force_format_webp = QRadioButton("WEBP")
         self.force_format_jpg = QRadioButton("JPG")
-        self.force_format_none = QRadioButton("None")
+        self.force_format_none = QRadioButton("无")
         self.force_format_none.setChecked(True)
         self.force_format_group = QButtonGroup()
         self.force_format_group.addButton(self.force_format_png)
@@ -141,9 +153,9 @@ class WatermarkRemoverGUI(QMainWindow):
         self.logs.setReadOnly(True)
         self.logs.setVisible(False)
 
-        self.start_button = QPushButton("Start", self)
-        self.stop_button = QPushButton("Stop", self)
-        self.toggle_logs_button = QPushButton("Show Logs", self)
+        self.start_button = QPushButton("开始", self)
+        self.stop_button = QPushButton("停止", self)
+        self.toggle_logs_button = QPushButton("显示日志", self)
         self.toggle_logs_button.setCheckable(True)
         self.stop_button.setDisabled(True)
 
@@ -167,12 +179,12 @@ class WatermarkRemoverGUI(QMainWindow):
 
         # Input and output paths
         path_layout = QVBoxLayout()
-        path_layout.addWidget(QLabel("Input Path:"))
+        path_layout.addWidget(QLabel("输入路径:"))
         path_layout.addWidget(self.input_path)
-        path_layout.addWidget(QPushButton("Browse", clicked=self.browse_input))
-        path_layout.addWidget(QLabel("Output Path:"))
+        path_layout.addWidget(QPushButton("浏览", clicked=self.browse_input))
+        path_layout.addWidget(QLabel("输出路径:"))
         path_layout.addWidget(self.output_path)
-        path_layout.addWidget(QPushButton("Browse", clicked=self.browse_output))
+        path_layout.addWidget(QPushButton("浏览", clicked=self.browse_output))
 
         # Options
         options_layout = QVBoxLayout()
@@ -197,7 +209,7 @@ class WatermarkRemoverGUI(QMainWindow):
         options_layout.addWidget(self.rotated_checkbox)
 
         force_format_layout = QHBoxLayout()
-        force_format_layout.addWidget(QLabel("Force Format:"))
+        force_format_layout.addWidget(QLabel("强制格式:"))
         force_format_layout.addWidget(self.force_format_png)
         force_format_layout.addWidget(self.force_format_webp)
         force_format_layout.addWidget(self.force_format_jpg)
@@ -206,7 +218,7 @@ class WatermarkRemoverGUI(QMainWindow):
 
         # Logs and progress
         progress_layout = QVBoxLayout()
-        progress_layout.addWidget(QLabel("Progress:"))
+        progress_layout.addWidget(QLabel("进度:"))
         progress_layout.addWidget(self.progress_bar)
         progress_layout.addWidget(self.toggle_logs_button)
         progress_layout.addWidget(self.logs)
@@ -238,11 +250,11 @@ class WatermarkRemoverGUI(QMainWindow):
         self.load_config()
 
     def update_bbox_label(self, value):
-        self.max_bbox_percent_label.setText(f"Max BBox Percent: {value}%")
+        self.max_bbox_percent_label.setText(f"最大边界框百分比: {value}%")
 
     def toggle_logs(self, checked):
         self.logs.setVisible(checked)
-        self.toggle_logs_button.setText("Hide Logs" if checked else "Show Logs")
+        self.toggle_logs_button.setText("隐藏日志" if checked else "显示日志")
 
     def apply_dark_mode_if_needed(self):
         if QApplication.instance().styleHints().colorScheme() == Qt.ColorScheme.Dark:
@@ -265,35 +277,35 @@ class WatermarkRemoverGUI(QMainWindow):
             QApplication.instance().setPalette(dark_palette)
 
     def update_system_info(self):
-        cuda_available = "CUDA: Available" if torch.cuda.is_available() else "CUDA: Not Available"
+        cuda_available = "CUDA: 可用" if torch.cuda.is_available() else "CUDA: 不可用"
         ram = psutil.virtual_memory()
         ram_usage = ram.used // (1024 ** 2)
         ram_total = ram.total // (1024 ** 2)
         ram_percentage = ram.percent
 
-        vram_status = "Not Available"
+        vram_status = "不可用"
         if torch.cuda.is_available():
             gpu_info = torch.cuda.get_device_properties(0)
             vram_total = gpu_info.total_memory // (1024 ** 2)
             vram_used = vram_total - (torch.cuda.memory_reserved(0) // (1024 ** 2))
             vram_percentage = (vram_used / vram_total) * 100
-            vram_status = f"VRAM: {vram_used} MB / {vram_total} MB ({vram_percentage:.2f}%)"
+            vram_status = f"显存: {vram_used} MB / {vram_total} MB ({vram_percentage:.2f}%)"
 
         status_text = (
-            f"{cuda_available} | RAM: {ram_usage} MB / {ram_total} MB ({ram_percentage}%) | {vram_status} | CPU Load: {psutil.cpu_percent()}%"
+            f"{cuda_available} | 内存: {ram_usage} MB / {ram_total} MB ({ram_percentage}%) | {vram_status} | CPU负载: {psutil.cpu_percent()}%"
         )
         self.status_bar.showMessage(status_text)
 
     def browse_input(self):
         if self.radio_single.isChecked():
-            path, _ = QFileDialog.getOpenFileName(self, "Select Input Image", "", "Images (*.png *.jpg *.jpeg *.webp)")
+            path, _ = QFileDialog.getOpenFileName(self, "选择输入图片", "", "图片 (*.png *.jpg *.jpeg *.webp)")
         else:
-            path = QFileDialog.getExistingDirectory(self, "Select Input Directory")
+            path = QFileDialog.getExistingDirectory(self, "选择输入目录")
         if path:
             self.input_path.setText(path)
 
     def browse_output(self):
-        path = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        path = QFileDialog.getExistingDirectory(self, "选择输出目录")
         if path:
             self.output_path.setText(path)
 
@@ -302,34 +314,34 @@ class WatermarkRemoverGUI(QMainWindow):
         output_path = self.output_path.text()
 
         if not input_path or not output_path:
-            QMessageBox.critical(self, "Error", "Input and Output paths are required.")
+            QMessageBox.critical(self, "错误", "输入和输出路径是必需的。")
             return
 
         # Instead of running subprocess, we'll import and run remwm.py directly
         # Get the absolute path to remwm.py, handling PyInstaller bundling
-        logger.info(f"Current working directory: {os.getcwd()}")
-        self.update_logs(f"Current working directory: {os.getcwd()}")
+        logger.info(f"当前工作目录: {os.getcwd()}")
+        self.update_logs(f"当前工作目录: {os.getcwd()}")
         
         if getattr(sys, 'frozen', False):
             # Running as compiled executable
             script_dir = sys._MEIPASS
-            logger.info(f"Running as compiled executable, _MEIPASS: {script_dir}")
-            self.update_logs(f"Running as compiled executable, _MEIPASS: {script_dir}")
+            logger.info(f"作为编译后的可执行文件运行, _MEIPASS: {script_dir}")
+            self.update_logs(f"作为编译后的可执行文件运行, _MEIPASS: {script_dir}")
         else:
             # Running as script
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            logger.info(f"Running as script, script_dir: {script_dir}")
-            self.update_logs(f"Running as script, script_dir: {script_dir}")
+            logger.info(f"作为脚本运行, script_dir: {script_dir}")
+            self.update_logs(f"作为脚本运行, script_dir: {script_dir}")
         
         remwm_path = os.path.join(script_dir, "remwm.py")
-        logger.info(f"remwm.py path: {remwm_path}")
-        self.update_logs(f"remwm.py path: {remwm_path}")
+        logger.info(f"remwm.py 路径: {remwm_path}")
+        self.update_logs(f"remwm.py 路径: {remwm_path}")
         
         # 检查remwm.py文件是否存在
         if not os.path.exists(remwm_path):
-            logger.error(f"remwm.py not found at: {remwm_path}")
-            self.update_logs(f"remwm.py not found at: {remwm_path}")
-            QMessageBox.critical(self, "Error", f"remwm.py not found at: {remwm_path}")
+            logger.error(f"remwm.py 未找到于: {remwm_path}")
+            self.update_logs(f"remwm.py 未找到于: {remwm_path}")
+            QMessageBox.critical(self, "错误", f"remwm.py 未找到于: {remwm_path}")
             return
         
         # Add the script directory to sys.path to allow importing remwm
@@ -366,8 +378,8 @@ class WatermarkRemoverGUI(QMainWindow):
                 args.append("--include-rotated")
             
             # Log the arguments for debugging
-            logger.info(f"Running remwm.main with args: {args}")
-            self.update_logs(f"Running remwm.main with args: {args}")
+            logger.info(f"运行 remwm.main 参数: {args}")
+            self.update_logs(f"运行 remwm.main 参数: {args}")
             
             # Run remwm.main in a separate thread to avoid blocking the GUI
             self.worker_thread = QThread()
@@ -384,9 +396,9 @@ class WatermarkRemoverGUI(QMainWindow):
             self.stop_button.setDisabled(False)
             self.start_button.setDisabled(True)
         except Exception as e:
-            logger.error(f"Error importing or running remwm: {e}")
-            self.update_logs(f"Error importing or running remwm: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to run remwm: {e}")
+            logger.error(f"导入或运行 remwm 时出错: {e}")
+            self.update_logs(f"导入或运行 remwm 时出错: {e}")
+            QMessageBox.critical(self, "错误", f"运行 remwm 失败: {e}")
 
     def update_logs(self, line):
         self.logs.append(line.strip())
